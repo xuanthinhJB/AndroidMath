@@ -123,7 +123,10 @@ class MTMathView @JvmOverloads constructor(
     /**
      * Font used to draw the equation. See MTFontManager
      */
-    var font: MTFont? = MTFontManager.defaultFont()
+     var font: MTFont? = null
+        get() {
+            return if (field == null) MTFontManager.defaultFont() else field
+        }
         set(value) {
             field = value
             displayList = null

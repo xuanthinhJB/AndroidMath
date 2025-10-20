@@ -539,6 +539,7 @@ open class MTMathAtomFactory {
             "cdots" to MTMathAtom(MTMathAtomType.KMTMathAtomOrdinary, "\u22EF"),
             "ddots" to MTMathAtom(MTMathAtomType.KMTMathAtomOrdinary, "\u22F1"),
             "triangle" to MTMathAtom(MTMathAtomType.KMTMathAtomOrdinary, "\u25B3"),
+            "diamond" to MTMathAtom(MTMathAtomType.KMTMathAtomOrdinary, "\u2662"),
             // These expand into 2 unicode chars
             "imath" to MTMathAtom(MTMathAtomType.KMTMathAtomOrdinary, "\uD835\uDEA4"),
             "jmath" to MTMathAtom(MTMathAtomType.KMTMathAtomOrdinary, "\uD835\uDEA5"),
