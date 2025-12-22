@@ -16,7 +16,6 @@ android {
         multiDexEnabled true
         externalNativeBuild {
             cmake {
-                arguments "-Dcdep-dependencies_DIR=../../../.cdep/modules"
                 arguments "-DANDROID_STL=c++_shared"
             }
         }
@@ -42,6 +41,14 @@ android {
     }
     ndkVersion "28.2.13676358"
     namespace 'com.agog.mathdisplay'
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
 }
 
 dependencies {
@@ -61,20 +68,6 @@ repositories {
     maven { url "https://jitpack.io" }
 }
 
-// This pulls in freetype. Dependencies are in cdep.yml
-// This only needs to run once but is being run before every build right now so that gradle command line builds will work
-
-task runcdep(type:Exec) {
-    commandLine './cdep'
-}
-
-preBuild.dependsOn(runcdep)
-
-
-// For Android Studio this needs to be run once from the command line
-//
-//  cd mathdisplaylib
-//  ./cdep
 afterEvaluate {
     publishing {
         publications {
@@ -83,7 +76,7 @@ afterEvaluate {
                 from components.release
                 groupId = 'com.github.gregcockroft'
                 artifactId = 'AndroidMath'
-                version = 'v1.0.0'
+                version = 'v1.1.0'
             }
         }
     }

@@ -22,17 +22,13 @@ cd AndroidMath
 Installation for Android Studio
 ----------------------------------
 
-Clone this project, run CDep.
-CDep pulls in the freetype dependency.
-
+Clone this project and open in Android Studio.
 
 ```
 git clone https://github.com/gregcockroft/AndroidMath.git
-cd AndroidMath/mathdisplaylib
-./cdep 
 ```
 
-Open the project in Android Studio 
+Open the `AndroidMath` folder in Android Studio and sync Gradle. 
 
 
 Using library in your app
@@ -56,9 +52,8 @@ Add below lines to apps's build.gradle
 
 ```groovy
 dependencies {
-	        implementation 'com.github.gregcockroft:AndroidMath:ALPHA'
+	        implementation 'com.github.gregcockroft:AndroidMath:v1.1.0'
 	}
-	
 ```
 
 ```xml
