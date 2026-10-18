@@ -89,42 +89,126 @@ open class MTDisplay(open var ascent: Float = 0.0f, open var descent: Float = 0.
 // List of normal atoms to display that would be an attributed string on iOS
 // Since we do not allow kerning attribute changes this is a string displayed using the advances for the font
 // Normally this is a single character. In some cases the string will be fused atoms
+//
+// Characters the math font lacks (Vietnamese letters in \text{…}, CJK…) are drawn with the
+// system serif font, as CoreText falls back to a system font on iOS.
 class MTCTLineDisplay(val str: String, range: NSRange, val font: MTFont, val atoms: List<MTMathAtom>) :
         MTDisplay(range = range) {
 
+    /** A piece of the string: glyphs of the math font, or text drawn with the fallback font. */
+    private class Run(val start: Int, val text: String, val glyphs: List<Int>?, val advances: Array<Float>)
+
+    private val runs: List<Run>
+
     init {
+        runs = makeRuns()
         computeDimensions()
+    }
+
+    private fun makeRuns(): List<Run> {
+        val out = mutableListOf<Run>()
+        var index = 0
+        var runStart = 0
+        var runIsFallback: Boolean? = null
+        fun close(end: Int) {
+            val fallback = runIsFallback ?: return
+            if (end <= runStart) return
+            val text = str.substring(runStart, end)
+            if (fallback) {
+                val paint = fallbackPaint(font.fontSize)
+                // One advance per UTF-16 unit, so string offsets map straight to x.
+                val advances = Array(text.length) { 0.0f }
+                for (i in text.indices) advances[i] = paint.measureText(text, 0, i + 1) - (if (i > 0) paint.measureText(text, 0, i) else 0.0f)
+                out.add(Run(runStart, text, null, advances))
+            } else {
+                val glyphs = font.getGidListForString(text)
+                val advances = Array(glyphs.size) { 0.0f }
+                font.mathTable.getAdvancesForGlyphs(glyphs, advances, glyphs.size)
+                out.add(Run(runStart, text, glyphs, advances))
+            }
+        }
+        while (index < str.length) {
+            val codepoint = str.codePointAt(index)
+            val missing = font.mathTable.getGlyphForCodepoint(codepoint) == 0
+            if (runIsFallback != missing) {
+                close(index)
+                runStart = index
+                runIsFallback = missing
+            }
+            index += Character.charCount(codepoint)
+        }
+        close(str.length)
+        return out
     }
 
     // Our own implementation of the ios6 function to get glyph path bounds.
     fun computeDimensions() {
-        val glyphs = font.getGidListForString(str)
-        val num = glyphs.count()
-        val bboxes: Array<BoundingBox?> = arrayOfNulls(num)
-        val advances: Array<Float> = Array(num, { 0.0f })
-        // Get the bounds for these glyphs
-        font.mathTable.getBoundingRectsForGlyphs(glyphs.toList(), bboxes, num)
-        font.mathTable.getAdvancesForGlyphs(glyphs.toList(), advances, num)
-
         this.width = 0.0f
-        for (i in 0 until num) {
-            val b = bboxes[i]
-            if (b != null) {
-                val ascent = maxOf(0.0f, b.upperRightY - 0)
-                // Descent is how much the line goes below the origin. However if the line is all above the origin, then descent can't be negative.
-                val descent = maxOf(0.0f, 0.0f - b.lowerLeftY)
-                if (ascent > this.ascent) {
-                    this.ascent = ascent
+        for (run in runs) {
+            val glyphs = run.glyphs
+            if (glyphs == null) {
+                val bounds = android.graphics.Rect()
+                fallbackPaint(font.fontSize).getTextBounds(run.text, 0, run.text.length, bounds)
+                this.ascent = maxOf(this.ascent, -bounds.top.toFloat())
+                this.descent = maxOf(this.descent, bounds.bottom.toFloat())
+                this.width += run.advances.sum()
+                continue
+            }
+            val num = glyphs.count()
+            val bboxes: Array<BoundingBox?> = arrayOfNulls(num)
+            font.mathTable.getBoundingRectsForGlyphs(glyphs, bboxes, num)
+            for (i in 0 until num) {
+                val b = bboxes[i]
+                if (b != null) {
+                    val ascent = maxOf(0.0f, b.upperRightY - 0)
+                    // Descent is how much the line goes below the origin. However if the line is all above the origin, then descent can't be negative.
+                    val descent = maxOf(0.0f, 0.0f - b.lowerLeftY)
+                    if (ascent > this.ascent) {
+                        this.ascent = ascent
+                    }
+                    if (descent > this.descent) {
+                        this.descent = descent
+                    }
+                    this.width += run.advances[i]
                 }
-                if (descent > this.descent) {
-                    this.descent = descent
-                }
-                this.width += advances[i]
             }
         }
-
     }
 
+    /** The x of a position in `str` (a UTF-16 offset) from the start of the line. */
+    fun offsetForStringIndex(index: Int): Float {
+        var x = 0.0f
+        for (run in runs) {
+            if (index <= run.start) break
+            val glyphs = run.glyphs
+            if (glyphs == null) {
+                val count = minOf(index - run.start, run.text.length)
+                for (i in 0 until count) x += run.advances[i]
+            } else {
+                var offset = run.start
+                for (i in glyphs.indices) {
+                    if (offset >= index) break
+                    x += run.advances[i]
+                    offset += Character.charCount(str.codePointAt(offset))
+                }
+            }
+        }
+        return x
+    }
+
+    /** The position in `str` (a UTF-16 offset) nearest to x, measured from the start of the line. */
+    fun stringIndexForOffset(x: Float): Int {
+        var left = 0.0f
+        var index = 0
+        while (index < str.length) {
+            val next = index + Character.charCount(str.codePointAt(index))
+            val right = offsetForStringIndex(next)
+            if (x < (left + right) / 2) return index
+            left = right
+            index = next
+        }
+        return str.length
+    }
 
     override fun draw(canvas: Canvas) {
         super.draw(canvas)
@@ -132,25 +216,38 @@ class MTCTLineDisplay(val str: String, range: NSRange, val font: MTFont, val ato
         textPaint.setColor(textColor)
         val drawer = MTDrawFreeType(font.mathTable)
 
-        val glyphs = font.getGidListForString(str)
-        val num = glyphs.count()
-        val advances: Array<Float> = Array(num, { 0.0f })
-        font.mathTable.getAdvancesForGlyphs(glyphs, advances, num)
-
-
         canvas.save()
         canvas.translate(position.x, position.y)
         canvas.scale(1.0f, -1.0f)
         var x = 0.0f
-        for (i in 0 until num) {
-            drawer.drawGlyph(canvas, textPaint, glyphs[i], x, 0.0f)
-            x += advances[i]
+        for (run in runs) {
+            val glyphs = run.glyphs
+            if (glyphs == null) {
+                val paint = fallbackPaint(font.fontSize)
+                paint.color = textColor
+                canvas.drawText(run.text, x, 0.0f, paint)
+                x += run.advances.sum()
+                continue
+            }
+            for (i in glyphs.indices) {
+                drawer.drawGlyph(canvas, textPaint, glyphs[i], x, 0.0f)
+                x += run.advances[i]
+            }
         }
-        textPaint.setColor(Color.RED)
         canvas.restore()
     }
 
+    companion object {
+        private val fallbackPaints = HashMap<Float, Paint>()
 
+        /** The system serif font (Noto Serif: every Vietnamese letter), at the math font's size. */
+        fun fallbackPaint(size: Float): Paint = fallbackPaints.getOrPut(size) {
+            Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+                typeface = android.graphics.Typeface.SERIF
+                textSize = size
+            }
+        }
+    }
 }
 
 
@@ -432,15 +529,19 @@ class MTRadicalDisplay(val radicand: MTMathListDisplay, val radicalGlyph: MTDisp
 class MTGlyphDisplay(val glyph: CGGlyph, range: NSRange, val myfont: MTFont) :
         MTDisplay(range = range) {
 
+    /// Stretches the glyph sideways: a wide accent or an arrow longer than the font's largest
+    /// variant (\widehat over a long name, \overrightarrow over a long vector).
+    var scaleX: Float = 1.0f
+
     override fun draw(canvas: Canvas) {
         super.draw(canvas)
-        val textPaint = Paint(Paint.SUBPIXEL_TEXT_FLAG or Paint.LINEAR_TEXT_FLAG or Paint.ANTI_ALIAS_FLAG)
+        val textPaint = Paint(Paint.SUBPIXEL_TEXT_FLAG or Paint.LINEAR_TEXT_FLAG or Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         textPaint.setColor(textColor)
         val drawer = MTDrawFreeType(myfont.mathTable)
 
         canvas.save()
         canvas.translate(position.x, position.y - this.shiftDown)
-        canvas.scale(1.0f, -1.0f)
+        canvas.scale(scaleX, -1.0f)
         drawer.drawGlyph(canvas, textPaint, glyph.gid, 0.0f, 0.0f)
         canvas.restore()
     }

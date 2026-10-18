@@ -751,6 +751,16 @@ class MTAccent(nucleus: String) : MTMathAtom(MTMathAtomType.KMTMathAtomAccent, n
     /// The inner math list
     var innerList: MTMathList? = null
 
+    /// The command it was written with (`widehat`, `overrightarrow`, `overparen`…): several
+    /// commands share a glyph but stretch differently and must be written back as they were.
+    var name: String? = null
+
+    /// Stretches to cover its content, scaling the largest glyph variant if needed.
+    val isWide: Boolean get() = name in WIDE_ACCENTS
+
+    /// An arrow over its content (\overrightarrow), as long as the content.
+    val isStretchyArrow: Boolean get() = name in STRETCHY_ARROWS
+
     override fun toLatexString(): String {
         val il: MTMathList? = this.innerList
         var istr = ""
@@ -765,7 +775,13 @@ class MTAccent(nucleus: String) : MTMathAtom(MTMathAtomType.KMTMathAtomAccent, n
         val atom = MTAccent(nucleus)
         super.copyDeepContent(atom)
         atom.innerList = this.innerList?.copyDeep()
+        atom.name = this.name
         return atom
+    }
+
+    companion object {
+        val WIDE_ACCENTS = setOf("widehat", "widetilde", "overparen", "wideparen")
+        val STRETCHY_ARROWS = setOf("overleftarrow", "overrightarrow", "overleftrightarrow")
     }
 
     override fun finalized(): MTAccent {

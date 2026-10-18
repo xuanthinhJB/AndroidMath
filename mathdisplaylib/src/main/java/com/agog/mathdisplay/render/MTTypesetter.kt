@@ -1208,7 +1208,8 @@ class MTTypesetter(val font: MTFont, linestyle: MTLineStyle, var cramped: Boolea
 
                 if (width > maxWidth) {
                     if (i == 0) {
-                        // glyph dimensions are not yet set
+                        // Even the base glyph is wider: use it (not glyph 0, .notdef).
+                        retGlyph.gid = variants[i]
                         retGlyph.glyphWidth = advances[i]
                         retGlyph.glyphAscent = ascent
                         retGlyph.glyphDescent = descent
@@ -1228,51 +1229,96 @@ class MTTypesetter(val font: MTFont, linestyle: MTLineStyle, var cramped: Boolea
 
 
     private fun makeAccent(accent: MTAccent): MTDisplay? {
-        if (accent.innerList != null) {
-
-            var accentee = createLineForMathList(accent.innerList!!, font, style, true)
-            if (accent.nucleus.isEmpty()) {
-                // no accent!
-                return accentee
-            }
-            var accentGlyph = styleFont.findGlyphForCharacterAtIndex(0, accent.nucleus)
-            val accenteeWidth = accentee.width
-            accentGlyph = this.findVariantGlyph(accentGlyph, accenteeWidth)
-            val delta = minOf(accentee.ascent, styleFont.mathTable.accentBaseHeight)
-
-            val skew = this.getSkew(accent, accenteeWidth, accentGlyph)
-            val height = accentee.ascent - delta  // This is always positive since delta <= height.
-            val accentPosition = CGPoint(skew, height)
-            val accentGlyphDisplay = MTGlyphDisplay(accentGlyph, accent.indexRange, styleFont)
-            accentGlyphDisplay.ascent = accentGlyph.glyphAscent
-            accentGlyphDisplay.descent = accentGlyph.glyphDescent
-            accentGlyphDisplay.width = accentGlyph.glyphWidth
-            accentGlyphDisplay.position = accentPosition
-
-            if (this.isSingleCharAccentee(accent) && (accent.subScript != null || accent.superScript != null)) {
-                // Attach the super/subscripts to the accentee instead of the accent.
-                val innerAtom = accent.innerList!!.atoms[0]
-                innerAtom.superScript = accent.superScript
-                innerAtom.subScript = accent.subScript
-                accent.superScript = null
-                accent.subScript = null
-                // Remake the accentee (now with sub/superscripts)
-                // Note: Latex adjusts the heights in case the height of the char is different in non-cramped mode. However this shouldn't be the case since cramping
-                // only affects fractions and superscripts. We skip adjusting the heights.
-                accentee = createLineForMathList(accent.innerList!!, font, style, cramped)
-            }
-
-            val display = MTAccentDisplay(accentGlyphDisplay, accentee, accent.indexRange)
-            display.width = accentee.width
-            display.descent = accentee.descent
-            val ascent = accentee.ascent - delta + accentGlyph.glyphAscent
-            display.ascent = maxOf(accentee.ascent, ascent)
-            display.position = currentPosition
-
-            return display
-        } else {
-            return null
+        val innerList = accent.innerList ?: return null
+        var accentee = createLineForMathList(innerList, font, style, true)
+        if (accent.nucleus.isEmpty()) {
+            // no accent!
+            return accentee
         }
+        val accenteeWidth = accentee.width
+        if (accent.isWide || accent.isStretchyArrow) {
+            return makeStretchedAccent(accent, accentee)
+        }
+
+        var accentGlyph = styleFont.findGlyphForCharacterAtIndex(0, accent.nucleus)
+        accentGlyph = this.findVariantGlyph(accentGlyph, accenteeWidth)
+        val delta = minOf(accentee.ascent, styleFont.mathTable.accentBaseHeight)
+
+        val skew = this.getSkew(accent, accenteeWidth, accentGlyph)
+        val height = accentee.ascent - delta  // This is always positive since delta <= height.
+        val accentPosition = CGPoint(skew, height)
+        val accentGlyphDisplay = MTGlyphDisplay(accentGlyph, accent.indexRange, styleFont)
+        accentGlyphDisplay.ascent = accentGlyph.glyphAscent
+        accentGlyphDisplay.descent = accentGlyph.glyphDescent
+        accentGlyphDisplay.width = accentGlyph.glyphWidth
+        accentGlyphDisplay.position = accentPosition
+
+        accentee = attachScriptsToAccentee(accent) ?: accentee
+
+        val display = MTAccentDisplay(accentGlyphDisplay, accentee, accent.indexRange)
+        display.width = accentee.width
+        display.descent = accentee.descent
+        val ascent = accentee.ascent - delta + accentGlyph.glyphAscent
+        display.ascent = maxOf(accentee.ascent, ascent)
+        display.position = currentPosition
+
+        return display
+    }
+
+    /**
+     * A wide accent (\widehat, an arc) or an arrow (\overrightarrow) over all of its content:
+     * the largest glyph variant that fits, stretched sideways when even that is too short, a
+     * gap above the content (as SwiftMath does).
+     */
+    private fun makeStretchedAccent(accent: MTAccent, content: MTMathListDisplay): MTDisplay {
+        var accentee = content
+        val accenteeWidth = accentee.width
+        // Arrows use the plain arrow glyphs, which have wider variants than the combining ones.
+        val base = when (accent.name) {
+            "overleftarrow" -> "\u2190"
+            "overleftrightarrow" -> "\u2194"
+            "overrightarrow" -> "\u2192"
+            else -> accent.nucleus
+        }
+        val glyph = this.findVariantGlyph(styleFont.findGlyphForCharacterAtIndex(0, base), accenteeWidth)
+        // Whitespace under the glyph (its bottom above the baseline) is taken off the gap.
+        val minY = -glyph.glyphDescent
+        val height = accentee.ascent + styleFont.mathTable.upperLimitGapMin - maxOf(0.0f, minY)
+        val accentGlyphDisplay = MTGlyphDisplay(glyph, accent.indexRange, styleFont)
+        accentGlyphDisplay.ascent = glyph.glyphAscent
+        accentGlyphDisplay.descent = glyph.glyphDescent
+        val padding = styleFont.fontSize / 10.0f  // about 0.1em past the content
+        if (glyph.glyphWidth > 0 && glyph.glyphWidth < accenteeWidth + (if (accent.isStretchyArrow) padding else 0.0f)) {
+            val target = accenteeWidth + padding
+            accentGlyphDisplay.scaleX = target / glyph.glyphWidth
+            accentGlyphDisplay.width = target
+            accentGlyphDisplay.position = CGPoint(-padding / 2, height)
+        } else {
+            accentGlyphDisplay.width = glyph.glyphWidth
+            accentGlyphDisplay.position = CGPoint((accenteeWidth - glyph.glyphWidth) / 2, height)
+        }
+
+        accentee = attachScriptsToAccentee(accent) ?: accentee
+
+        val display = MTAccentDisplay(accentGlyphDisplay, accentee, accent.indexRange)
+        display.width = accentee.width
+        display.descent = accentee.descent
+        display.ascent = maxOf(accentee.ascent, height + glyph.glyphAscent)
+        display.position = currentPosition
+        return display
+    }
+
+    /** x̂² puts the scripts on the x, not on the accent: the accentee is made again with them. */
+    private fun attachScriptsToAccentee(accent: MTAccent): MTMathListDisplay? {
+        if (!this.isSingleCharAccentee(accent) || (accent.subScript == null && accent.superScript == null)) return null
+        val innerAtom = accent.innerList!!.atoms[0]
+        innerAtom.superScript = accent.superScript
+        innerAtom.subScript = accent.subScript
+        accent.superScript = null
+        accent.subScript = null
+        // Note: Latex adjusts the heights in case the height of the char is different in non-cramped mode. However this shouldn't be the case since cramping
+        // only affects fractions and superscripts. We skip adjusting the heights.
+        return createLineForMathList(accent.innerList!!, font, style, cramped)
     }
 
 

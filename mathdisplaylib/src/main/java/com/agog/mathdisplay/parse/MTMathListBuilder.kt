@@ -196,8 +196,28 @@ class MTMathListBuilder(str: String) {
                     if (spacesAllowed && ch == ' ') {
                         // If spaces are allowed then spaces do not need escaping with a \ before being used.
                         atom = MTMathAtom.atomForLatexSymbolName(" ")
+                    } else if (ch == '\'' && !spacesAllowed) {
+                        // As in TeX, f' is f^{\prime} (and f'' has two primes).
+                        var base = prevAtom
+                        if (base == null || !base.scriptsAllowed()) {
+                            base = MTMathAtom(MTMathAtomType.KMTMathAtomOrdinary, "")
+                            list.addAtom(base)
+                            prevAtom = base
+                        }
+                        val script = base.superScript ?: MTMathList().also { base.superScript = it }
+                        script.addAtom(MTMathAtom.atomForLatexSymbolName("prime")!!)
+                        continue@outerloop
                     } else {
                         atom = MTMathAtom.atomForCharacter(ch)
+                        if (atom == null && ch.code > 0x7E) {
+                            // Unicode: any letter in \text{…} (Vietnamese), and in math a symbol such
+                            // as ≤ or π as its command; what the math font lacks is drawn with a
+                            // fallback font (MTCTLineDisplay).
+                            var text = ch.toString()
+                            if (Character.isHighSurrogate(ch) && hasCharacters()) text += getNextCharacter()
+                            atom = if (spacesAllowed) null else MTMathAtom.atomForUnicodeSymbol(text)
+                            if (atom == null) atom = MTMathAtom(MTMathAtomType.KMTMathAtomOrdinary, text)
+                        }
                         if (atom == null) {
                             // Not a recognized character
                             continue@outerloop
@@ -407,6 +427,28 @@ class MTMathListBuilder(str: String) {
                 frac.numerator = this.buildInternal(true)
                 frac.denominator = this.buildInternal(true)
                 return frac
+            }
+            "dfrac", "tfrac" -> {
+                // A fraction in display (or text) style wherever it is: the style goes first in
+                // both parts, as SwiftMath does.
+                val frac = MTFraction()
+                val style = if (command == "dfrac") MTLineStyle.KMTLineStyleDisplay else MTLineStyle.KMTLineStyleText
+                frac.numerator = this.buildInternal(true)?.also { it.insertAtom(MTMathStyle(style), 0) }
+                frac.denominator = this.buildInternal(true)?.also { it.insertAtom(MTMathStyle(style), 0) }
+                return frac
+            }
+            "overset", "stackrel" -> {
+                // Only an arc is supported: \overset{\frown}{AB} is the usual way to write arc AB,
+                // and it becomes the same stretchy arc as \overparen{AB}.
+                val top = this.buildInternal(true)
+                val body = this.buildInternal(true)
+                val arc = MTMathAtom.accentWithName("overparen")
+                if (top == null || top.atoms.size != 1 || top.atoms[0].nucleus != "\u2322" || arc == null) {
+                    this.setError(MTParseErrors.InvalidCommand, "\\$command is only supported with \\frown on top")
+                    return null
+                }
+                arc.innerList = body
+                return arc
             }
             "binom" -> {
                 // A binom command has 2 arguments
@@ -833,8 +875,13 @@ class MTMathListBuilder(str: String) {
                     str.append(under.toLatexString())
                 } else if (atom.type == MTMathAtomType.KMTMathAtomAccent) {
                     val accent = atom as MTAccent
-                    val accentname = MTMathAtom.accentName(accent)
-                    str.append("\\$accentname")
+                    if (accent.nucleus == "\u23DC") {
+                        // Arcs, written as the web's formula gallery does.
+                        str.append("\\overset{\\frown}")
+                    } else {
+                        val accentname = MTMathAtom.accentName(accent)
+                        str.append("\\$accentname")
+                    }
                     str.append(accent.toLatexString())
                 } else if (atom.type == MTMathAtomType.KMTMathAtomLargeOperator) {
                     val op = atom as MTLargeOperator

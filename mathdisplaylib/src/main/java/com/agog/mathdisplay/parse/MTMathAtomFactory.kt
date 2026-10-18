@@ -82,6 +82,12 @@ open class MTMathAtomFactory {
         return textToLatexSymbolNames[atom.nucleus]
     }
 
+    /** The atom of the command a Unicode symbol stands for (≤ → \leq), or null. */
+    fun atomForUnicodeSymbol(text: String): MTMathAtom? {
+        val name = textToLatexSymbolNames[text] ?: return null
+        return atomForLatexSymbolName(name)
+    }
+
     fun addLatexSymbol(name: String, atom: MTMathAtom) {
         supportedLatexSymbols[name] = atom
         if (atom.nucleus.isNotEmpty()) {
@@ -96,14 +102,15 @@ open class MTMathAtomFactory {
     fun accentWithName(accentName: String): MTAccent? {
         val accentValue: String? = accents[accentName]
         return if (accentValue != null) {
-            MTAccent(accentValue)
+            MTAccent(accentValue).also { it.name = accentName }
         } else {
             null
         }
     }
 
+    /** The command an accent was written with (\widehat stays \widehat, not \hat). */
     fun accentName(accent: MTAccent): String? {
-        return accentToCommands[accent.nucleus]
+        return accent.name ?: accentToCommands[accent.nucleus]
     }
 
     fun boundaryAtomForDelimiterName(delimName: String): MTMathAtom? {
@@ -266,14 +273,15 @@ open class MTMathAtomFactory {
             table.setAlignment(MTColumnAlignment.KMTColumnAlignmentLeft, 2)
             return table
         } else if (env == "cases") {
-            if (table.numColumns() != 2) {
-                error.copyFrom(MTParseError(MTParseErrors.InvalidNumColumns, "cases environment can only have 2 columns"))
+            // One column too: a system of equations is often written without &.
+            if (table.numColumns() != 1 && table.numColumns() != 2) {
+                error.copyFrom(MTParseError(MTParseErrors.InvalidNumColumns, "cases environment can have 1 or 2 columns"))
                 return null
             }
             table.interRowAdditionalSpacing = 0.0f
             table.interColumnSpacing = 18.0f
             table.setAlignment(MTColumnAlignment.KMTColumnAlignmentLeft, 0)
-            table.setAlignment(MTColumnAlignment.KMTColumnAlignmentLeft, 1)
+            if (table.numColumns() == 2) table.setAlignment(MTColumnAlignment.KMTColumnAlignmentLeft, 1)
             // All the lists are in textstyle
             val style: MTMathAtom = MTMathStyle(MTLineStyle.KMTLineStyleText)
             for (i in 0 until table.cells.size) {
@@ -395,6 +403,13 @@ open class MTMathAtomFactory {
             "mid" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2223"),
             "parallel" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2225"),
             "sim" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u223C"),
+            // Similar triangles in Vietnamese textbooks (\triangle ABC \backsim \triangle DEF).
+            "backsim" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u223D"),
+            "frown" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2322"),
+            "smile" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2323"),
+            "leqslant" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2A7D"),
+            "geqslant" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2A7E"),
+            "nparallel" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2226"),
             "simeq" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2243"),
             "cong" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2245"),
             "approx" to MTMathAtom(MTMathAtomType.KMTMathAtomRelation, "\u2248"),
@@ -573,6 +588,10 @@ open class MTMathAtomFactory {
             "gets" to "leftarrow",
             "to" to "rightarrow",
             "iff" to "Longleftrightarrow",
+            "implies" to "Longrightarrow",
+            "impliedby" to "Longleftarrow",
+            "dots" to "ldots",
+            "varnothing" to "emptyset",
             "AA" to "angstrom"
     )
 
@@ -616,7 +635,14 @@ open class MTMathAtomFactory {
             "check" to "\u030C",
             "vec" to "\u20D7",
             "widehat" to "\u0302",
-            "widetilde" to "\u0303"
+            "widetilde" to "\u0303",
+            // Stretchy arrows over their content (vectors \overrightarrow{AB}).
+            "overleftarrow" to "\u20D6",
+            "overrightarrow" to "\u20D7",
+            "overleftrightarrow" to "\u20E1",
+            // An arc over its content (arc AB); \overset{\frown}{AB} becomes this too.
+            "overparen" to "\u23DC",
+            "wideparen" to "\u23DC"
     )
 
     // Reverse of above with preference for shortest command on overlap
