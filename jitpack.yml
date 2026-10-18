@@ -1,0 +1,3 @@
+# JitPack builds the library (com.github.xuanthinhJB:AndroidMath:<commit>) with JDK 17, as AGP 8 needs.
+jdk:
+  - openjdk17

@@ -2,7 +2,7 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 apply plugin: 'maven-publish'
 
-group='com.github.gregcockroft'
+group='com.github.xuanthinhJB'
 
 android {
     compileSdkVersion 34
@@ -16,7 +16,7 @@ android {
         multiDexEnabled true
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_STL=c++_shared"
+                arguments "-DANDROID_STL=c++_static"
             }
         }
     }
@@ -54,12 +54,13 @@ android {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'junit:junit:4.13.2'
     implementation 'androidx.annotation:annotation:1.7.0'
-    implementation 'androidx.test:runner:1.5.2'
-    implementation 'androidx.test:rules:1.5.0'
-    api "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-    implementation 'com.github.jitpack:gradle-simple:1.0'
+    api "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    // Test libraries stay out of the apps that use the library.
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test:rules:1.5.0'
 }
 repositories {
     mavenCentral()
@@ -74,7 +75,7 @@ afterEvaluate {
             // Creates a Maven publication called "release".
             release(MavenPublication) {
                 from components.release
-                groupId = 'com.github.gregcockroft'
+                groupId = 'com.github.xuanthinhJB'
                 artifactId = 'AndroidMath'
                 version = 'v1.1.0'
             }
